@@ -693,8 +693,8 @@ function update_activities_details(activity) {
     activity.value = 'from'
     activity.to = 'to'
   }
-}
-
+} 
+ 
 const emptyText = computed(() => {
   let text = 'No Activities'
   if (title.value == 'Emails') {
