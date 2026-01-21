@@ -698,7 +698,7 @@ function update_activities_details(activity) {
 const emptyText = computed(() => {
   let text = 'No Activities'
   if (title.value == 'Emails') {
-    text = 'No Email Communications'
+    text = 'No Email Communications , I am sure you will find something interesting in the comments'
   } else if (title.value == 'Comments') {
     text = 'No Comments'
   } else if (title.value == 'Data') {
