@@ -710,7 +710,7 @@ const emptyText = computed(() => {
   } else if (title.value == 'Tasks') {
     text = 'No Tasks'
   } else if (title.value == 'Attachments') {
-    text = 'No Attachments'
+    text = 'No Attachments or Contracts'
   } else if (title.value == 'WhatsApp') {
     text = 'No WhatsApp Messages'
   }
