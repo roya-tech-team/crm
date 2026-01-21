@@ -420,7 +420,7 @@ const tabs = computed(() => {
     },
     {
       name: 'Attachments',
-      label: __('Attachments'),
+      label: __('AttachmentsOrContracts'),
       icon: AttachmentIcon,
     },
     {
