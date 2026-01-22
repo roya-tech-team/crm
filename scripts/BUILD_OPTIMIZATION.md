@@ -53,7 +53,13 @@ export DOCKER_BUILDKIT=1
 - Automatically detects existing images in registry
 - Reuses unchanged layers from previous builds
 
-### 4. **Buildx Builder**
+### 4. **Commit-Based Cache Busting** (`_cache_bust` in APPS_JSON)
+- The build script adds `_cache_bust: <git commit SHA>` to the apps.json passed to Docker.
+- When you push new code and rebuild, the commit changes → `APPS_JSON_BASE64` changes → Docker invalidates cache **only from the app-install layer onward**.
+- Base layers (OS, Frappe, Node, etc.) stay cached; only CRM clone + install + frontend build rebuild.
+- **Result**: Fast rebuilds (~few min) and small pushes (tens–low hundreds of MB) instead of full 1GB+ when only app code changes. **Push your code first**, then build+push.
+
+### 5. **Buildx Builder**
 - Ensures buildx builder is properly configured
 - Better multi-platform support
 - Improved cache handling

@@ -60,18 +60,25 @@ else
     fi
 fi
 
-# Determine CRM repo URL and branch from git
+# Determine CRM repo URL, branch, and commit from git (commit used for cache-busting)
 cd "$CRM_ROOT" || exit 1
 if [ -d ".git" ]; then
     CRM_REPO_URL=$(git remote get-url origin 2>/dev/null || echo "https://github.com/roya-tech-team/crm")
     CRM_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    CRM_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
 else
     CRM_REPO_URL="${CRM_REPO:-https://github.com/roya-tech-team/crm}"
     CRM_BRANCH="${CRM_BRANCH:-main}"
+    CRM_COMMIT="${CRM_COMMIT:-}"
+fi
+# Fallback if no commit (e.g. not a git repo) — use timestamp so each build is distinct
+if [ -z "$CRM_COMMIT" ]; then
+    CRM_COMMIT="build-$(date +%s)"
 fi
 
 echo "  CRM Repo: $CRM_REPO_URL"
 echo "  CRM Branch: $CRM_BRANCH"
+echo "  CRM Commit: ${CRM_COMMIT:0:12} (cache-bust when code changes)"
 echo ""
 
 # Check if frappe_docker directory exists
@@ -82,8 +89,9 @@ if [ -z "$FRAPPE_DOCKER_ABS" ] || [ ! -d "$FRAPPE_DOCKER_ABS" ]; then
     exit 1
 fi
 
-# Create apps.json content
-APPS_JSON="[{\"url\": \"$CRM_REPO_URL\",\"branch\": \"$CRM_BRANCH\"}]"
+# Create apps.json content. _cache_bust (commit SHA) invalidates Docker cache when
+# code changes — only app layers rebuild; base layers stay cached. Push code first.
+APPS_JSON="[{\"url\": \"$CRM_REPO_URL\",\"branch\": \"$CRM_BRANCH\",\"_cache_bust\": \"$CRM_COMMIT\"}]"
 APPS_JSON_BASE64=$(echo -n "$APPS_JSON" | base64)
 
 echo -e "${BLUE}📦 Preparing build context...${NC}"
@@ -104,17 +112,22 @@ BUILD_ARGS=(
     -t "$IMAGE_TAG"
 )
 
-# Add cache options if enabled
-if [ "$USE_CACHE" = "true" ] && [ "$USE_BUILDX" = true ]; then
-    # Use previous image as cache source
-    if docker manifest inspect "$IMAGE_TAG" &>/dev/null; then
-        echo -e "${BLUE}📦 Using existing image as cache source...${NC}"
-        BUILD_ARGS+=(--cache-from "type=registry,ref=$IMAGE_TAG")
+# Add cache options
+if [ "$USE_CACHE" = "true" ]; then
+    if [ "$USE_BUILDX" = true ]; then
+        # Use previous image as cache source
+        if docker manifest inspect "$IMAGE_TAG" &>/dev/null; then
+            echo -e "${BLUE}📦 Using existing image as cache source...${NC}"
+            BUILD_ARGS+=(--cache-from "type=registry,ref=$IMAGE_TAG")
+        fi
+        # Add cache output
+        if [ -n "$CACHE_TO" ]; then
+            BUILD_ARGS+=(--cache-to "$CACHE_TO")
+        fi
     fi
-    # Add cache output
-    if [ -n "$CACHE_TO" ]; then
-        BUILD_ARGS+=(--cache-to "$CACHE_TO")
-    fi
+else
+    echo -e "${YELLOW}⚠️  Cache disabled (USE_CACHE=false). Full rebuild to pick up changes.${NC}"
+    BUILD_ARGS+=(--no-cache)
 fi
 
 if [ "$USE_BUILDX" = true ]; then
@@ -138,6 +151,9 @@ if [ $BUILD_EXIT_CODE -eq 0 ]; then
     echo "  View image:    docker images | grep $(echo $IMAGE_TAG | cut -d: -f1)"
     echo "  Run container: docker run -it $IMAGE_TAG bash"
     echo "  Push image:    bash scripts/push-docker.sh"
+    echo ""
+    echo "  Cache-bust: commit SHA in APPS_JSON invalidates app layers only when"
+    echo "  code changes. Push your code first, then build+push."
     echo ""
 else
     echo ""

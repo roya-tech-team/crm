@@ -704,7 +704,7 @@ const emptyText = computed(() => {
   } else if (title.value == 'Data') {
     text = 'No Data'
   } else if (title.value == 'Calls') {
-    text = 'No Call Logs'
+    text = 'No Call Logs At All'
   } else if (title.value == 'Notes') {
     text = 'No Notes'
   } else if (title.value == 'Tasks') {
