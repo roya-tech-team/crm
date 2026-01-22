@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Frappe CRM Docker Build and Push Script
-# This script builds and pushes a Docker image with the CRM app
+# Frappe CRM Docker Build Script
+# This script builds a Docker image with the CRM app
 
 set -e  # Exit on error
 
@@ -13,7 +13,6 @@ CRM_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FRAPPE_BRANCH="${FRAPPE_BRANCH:-version-15}"
 IMAGE_TAG="${IMAGE_TAG:-artisthaa/crm:latest}"
 PLATFORM="${PLATFORM:-linux/amd64}"
-PUSH_IMAGE="${PUSH_IMAGE:-true}"
 FRAPPE_DOCKER_PATH="${FRAPPE_DOCKER_PATH:-../frappe-crm-deploy/frappe_docker}"
 USE_CACHE="${USE_CACHE:-true}"
 # Cache configuration - inline cache is embedded in the image, registry cache is separate
@@ -27,13 +26,12 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🐳 Building and Pushing Frappe CRM Docker Image${NC}"
+echo -e "${BLUE}🐳 Building Frappe CRM Docker Image${NC}"
 echo ""
 echo "Configuration:"
 echo "  Frappe Branch: $FRAPPE_BRANCH"
 echo "  Image Tag: $IMAGE_TAG"
 echo "  Platform: $PLATFORM"
-echo "  Push Image: $PUSH_IMAGE"
 echo "  Use Cache: $USE_CACHE"
 echo "  Cache To: $CACHE_TO"
 echo "  Frappe Docker Path: $FRAPPE_DOCKER_PATH"
@@ -120,25 +118,12 @@ if [ "$USE_CACHE" = "true" ] && [ "$USE_BUILDX" = true ]; then
 fi
 
 if [ "$USE_BUILDX" = true ]; then
-    if [ "$PUSH_IMAGE" = "true" ]; then
-        # Use buildx with push for direct push
-        BUILD_ARGS+=(--push)
-        docker buildx build "${BUILD_ARGS[@]}" .
-    else
-        # Use buildx with load for local use
-        BUILD_ARGS+=(--load)
-        docker buildx build "${BUILD_ARGS[@]}" .
-    fi
+    # Use buildx with load for local use
+    BUILD_ARGS+=(--load)
+    docker buildx build "${BUILD_ARGS[@]}" .
 else
     # Regular docker build (BuildKit still enabled via env var)
     docker build "${BUILD_ARGS[@]}" .
-    
-    # Push if requested
-    if [ "$PUSH_IMAGE" = "true" ]; then
-        echo ""
-        echo -e "${BLUE}📤 Pushing Docker image...${NC}"
-        docker push "$IMAGE_TAG"
-    fi
 fi
 
 BUILD_EXIT_CODE=$?
@@ -146,18 +131,13 @@ BUILD_EXIT_CODE=$?
 if [ $BUILD_EXIT_CODE -eq 0 ]; then
     echo ""
     echo -e "${GREEN}✅ Docker image built successfully!${NC}"
-    if [ "$PUSH_IMAGE" = "true" ]; then
-        echo -e "${GREEN}✅ Docker image pushed successfully!${NC}"
-    fi
     echo ""
     echo "Image: $IMAGE_TAG"
     echo ""
     echo "📋 Useful commands:"
     echo "  View image:    docker images | grep $(echo $IMAGE_TAG | cut -d: -f1)"
     echo "  Run container: docker run -it $IMAGE_TAG bash"
-    if [ "$PUSH_IMAGE" != "true" ]; then
-        echo "  Push image:    docker push $IMAGE_TAG"
-    fi
+    echo "  Push image:    bash scripts/push-docker.sh"
     echo ""
 else
     echo ""

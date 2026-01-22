@@ -55,6 +55,11 @@ export default defineConfig(async ({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
+        // Stub for standalone build when sites/common_site_config.json is missing (e.g. Docker/CI)
+        '../../../../sites/common_site_config.json': path.resolve(
+          __dirname,
+          'config/common_site_config.json'
+        ),
       },
     },
     optimizeDeps: {
