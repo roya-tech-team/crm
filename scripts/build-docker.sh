@@ -15,9 +15,8 @@ IMAGE_TAG="${IMAGE_TAG:-artisthaa/crm:latest}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 FRAPPE_DOCKER_PATH="${FRAPPE_DOCKER_PATH:-../frappe-crm-deploy/frappe_docker}"
 USE_CACHE="${USE_CACHE:-true}"
-# Cache configuration - inline cache is embedded in the image, registry cache is separate
-CACHE_TO="${CACHE_TO:-type=inline}"
-# For registry cache, use: type=registry,ref=${IMAGE_TAG}-cache,mode=max
+# Local cache directory (used with buildx --load; inline cache doesn't work with --load)
+DOCKER_CACHE_DIR="${DOCKER_CACHE_DIR:-.docker-build-cache}"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -33,7 +32,7 @@ echo "  Frappe Branch: $FRAPPE_BRANCH"
 echo "  Image Tag: $IMAGE_TAG"
 echo "  Platform: $PLATFORM"
 echo "  Use Cache: $USE_CACHE"
-echo "  Cache To: $CACHE_TO"
+echo "  Cache Dir: $DOCKER_CACHE_DIR (local; reused across builds)"
 echo "  Frappe Docker Path: $FRAPPE_DOCKER_PATH"
 echo ""
 
@@ -53,10 +52,14 @@ if ! docker buildx version &> /dev/null; then
     USE_BUILDX=false
 else
     USE_BUILDX=true
-    # Ensure buildx builder exists
-    if ! docker buildx ls | grep -q "default"; then
-        echo -e "${BLUE}📦 Creating buildx builder...${NC}"
-        docker buildx create --name default --use 2>/dev/null || true
+    # Use docker-container driver: required for cache-to/cache-from with --load.
+    # Default 'docker' driver does not support cache export.
+    BUILDX_BUILDER="crm-builder"
+    if ! docker buildx ls | grep -q "$BUILDX_BUILDER"; then
+        echo -e "${BLUE}📦 Creating buildx builder ($BUILDX_BUILDER, docker-container driver)...${NC}"
+        docker buildx create --name "$BUILDX_BUILDER" --driver docker-container --use 2>/dev/null || true
+    else
+        docker buildx use "$BUILDX_BUILDER" 2>/dev/null || true
     fi
 fi
 
@@ -89,6 +92,14 @@ if [ -z "$FRAPPE_DOCKER_ABS" ] || [ ! -d "$FRAPPE_DOCKER_ABS" ]; then
     exit 1
 fi
 
+# Absolute path for local build cache (build runs from frappe_docker)
+CACHE_DIR_ABS="$CRM_ROOT/.docker-build-cache"
+if [ -n "$DOCKER_CACHE_DIR" ] && [ "${DOCKER_CACHE_DIR#/}" != "$DOCKER_CACHE_DIR" ]; then
+    CACHE_DIR_ABS="$DOCKER_CACHE_DIR"
+elif [ -n "$DOCKER_CACHE_DIR" ]; then
+    CACHE_DIR_ABS="$CRM_ROOT/$DOCKER_CACHE_DIR"
+fi
+
 # Create apps.json content. _cache_bust (commit SHA) invalidates Docker cache when
 # code changes — only app layers rebuild; base layers stay cached. Push code first.
 APPS_JSON="[{\"url\": \"$CRM_REPO_URL\",\"branch\": \"$CRM_BRANCH\",\"_cache_bust\": \"$CRM_COMMIT\"}]"
@@ -100,7 +111,8 @@ echo -e "${BLUE}📦 Preparing build context...${NC}"
 cd "$FRAPPE_DOCKER_ABS" || exit 1
 
 # Build the image
-echo -e "${BLUE}🔨 Building Docker image (this may take 10-20 minutes)...${NC}"
+echo -e "${BLUE}🔨 Building Docker image...${NC}"
+echo "   (First build: 10–20 min; with cache, 2–5 min when only app code changes)"
 echo ""
 
 # Build arguments
@@ -115,18 +127,20 @@ BUILD_ARGS=(
 # Add cache options
 if [ "$USE_CACHE" = "true" ]; then
     if [ "$USE_BUILDX" = true ]; then
-        # Use previous image as cache source
+        # Cache-from: registry (reuse layers from last push) + local (reuse from previous builds)
         if docker manifest inspect "$IMAGE_TAG" &>/dev/null; then
-            echo -e "${BLUE}📦 Using existing image as cache source...${NC}"
+            echo -e "${BLUE}📦 Using registry image as cache source...${NC}"
             BUILD_ARGS+=(--cache-from "type=registry,ref=$IMAGE_TAG")
         fi
-        # Add cache output
-        if [ -n "$CACHE_TO" ]; then
-            BUILD_ARGS+=(--cache-to "$CACHE_TO")
+        if [ -d "$CACHE_DIR_ABS" ]; then
+            echo -e "${BLUE}📦 Using local cache ($CACHE_DIR_ABS)...${NC}"
+            BUILD_ARGS+=(--cache-from "type=local,src=$CACHE_DIR_ABS")
         fi
+        # Cache-to: local only (inline cache doesn't work with --load)
+        BUILD_ARGS+=(--cache-to "type=local,dest=$CACHE_DIR_ABS,mode=max")
     fi
 else
-    echo -e "${YELLOW}⚠️  Cache disabled (USE_CACHE=false). Full rebuild to pick up changes.${NC}"
+    echo -e "${YELLOW}⚠️  Cache disabled (USE_CACHE=false). Full rebuild.${NC}"
     BUILD_ARGS+=(--no-cache)
 fi
 
@@ -152,8 +166,8 @@ if [ $BUILD_EXIT_CODE -eq 0 ]; then
     echo "  Run container: docker run -it $IMAGE_TAG bash"
     echo "  Push image:    bash scripts/push-docker.sh"
     echo ""
-    echo "  Cache-bust: commit SHA in APPS_JSON invalidates app layers only when"
-    echo "  code changes. Push your code first, then build+push."
+    echo "  Push uploads only layers not already in the registry (incremental)."
+    echo "  Cache: commit SHA invalidates app layers only when code changes."
     echo ""
 else
     echo ""

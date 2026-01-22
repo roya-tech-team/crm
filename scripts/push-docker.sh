@@ -52,10 +52,11 @@ if ! docker info 2>&1 | grep -q "Username"; then
     fi
 fi
 
-echo -e "${BLUE}📤 Pushing Docker image (this may take 5-15 minutes for large images)...${NC}"
+echo -e "${BLUE}📤 Pushing Docker image...${NC}"
+echo "   (Only layers not already in the registry are uploaded — incremental push)"
 echo ""
 
-# Push the image
+# Push the image (Docker uploads only missing layers; unchanged layers are skipped)
 docker push "$IMAGE_TAG"
 
 PUSH_EXIT_CODE=$?
@@ -65,6 +66,7 @@ if [ $PUSH_EXIT_CODE -eq 0 ]; then
     echo -e "${GREEN}✅ Docker image pushed successfully!${NC}"
     echo ""
     echo "Image: $IMAGE_TAG"
+    echo "  (Only new/changed layers were uploaded; base layers reused if unchanged.)"
     echo ""
     echo "📋 Verify at: https://hub.docker.com/r/${IMAGE_NAME}"
     echo ""

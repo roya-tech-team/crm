@@ -38,29 +38,38 @@ export DOCKER_BUILDKIT=1
 - More efficient layer storage
 
 ### 2. **Cache Configuration**
-- **Inline Cache**: Cache metadata embedded in the image
-  - `CACHE_TO=type=inline`
-  - Automatically reused on next build
-  - No separate cache image needed
+- **Local Cache** (default): Stored in `.docker-build-cache/`
+  - `--cache-to type=local,dest=.docker-build-cache,mode=max`
+  - Reused across builds on the same machine
+  - Works with `--load` (inline cache does not)
 
-- **Registry Cache** (optional): Separate cache image
-  - `CACHE_TO=type=registry,ref=${IMAGE_TAG}-cache,mode=max`
-  - Better for CI/CD pipelines
-  - Can be shared across builds
+- **Registry Cache-From**: When the image exists in the registry
+  - `--cache-from type=registry,ref=$IMAGE_TAG`
+  - Reuses layers from the last push (e.g. base layers)
 
-### 3. **Cache-From Strategy**
-- Uses previous image as cache source if available
-- Automatically detects existing images in registry
-- Reuses unchanged layers from previous builds
+### 3. **Buildx docker-container Driver**
+- Script uses a `crm-builder` buildx builder with **docker-container** driver
+- The default `docker` driver does not support `cache-to` with `--load`
+- Enables proper local cache export/import and faster rebuilds
 
-### 4. **Commit-Based Cache Busting** (`_cache_bust` in APPS_JSON)
+### 4. **Cache-From Strategy**
+- Uses **registry** image as cache source when available (after first push)
+- Uses **local** cache from previous builds
+- Reuses unchanged layers; only changed layers rebuild
+
+### 5. **Commit-Based Cache Busting** (`_cache_bust` in APPS_JSON)
 - The build script adds `_cache_bust: <git commit SHA>` to the apps.json passed to Docker.
 - When you push new code and rebuild, the commit changes → `APPS_JSON_BASE64` changes → Docker invalidates cache **only from the app-install layer onward**.
 - Base layers (OS, Frappe, Node, etc.) stay cached; only CRM clone + install + frontend build rebuild.
 - **Result**: Fast rebuilds (~few min) and small pushes (tens–low hundreds of MB) instead of full 1GB+ when only app code changes. **Push your code first**, then build+push.
 
-### 5. **Buildx Builder**
-- Ensures buildx builder is properly configured
+### 7. **Incremental Push**
+- `docker push` uploads **only layers the registry does not already have**
+- Unchanged base layers are skipped; only new or changed layers are sent
+- Keeps push time and bandwidth low when you rebuild and push often
+
+### 6. **Buildx Builder**
+- Ensures buildx builder (`crm-builder`) is properly configured
 - Better multi-platform support
 - Improved cache handling
 
